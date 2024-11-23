@@ -241,3 +241,33 @@ module "app_asg" {
   user_data_file     = filebase64("${path.module}/files/userdata.sh")
   alb_sg_id          = module.app_security_group.alb_sg_id
 }
+
+# Create the database instance
+
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  owners = ["099720109477"] # Canonical
+}
+
+resource "aws_instance" "db" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3a.micro"
+  availability_zone = "us-east-1a"
+  subnet_id = module.vpc.intra_subnets[0]
+  security_groups = [module.app_security_group.db_sg_id]
+
+  tags = {
+    Name = "mysql-db"
+  }
+}
