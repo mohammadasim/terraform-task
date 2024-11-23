@@ -96,7 +96,70 @@ resource "aws_alb_listener" "app_alb_http_listener" {
   port              = 80
   protocol          = "HTTP"
   default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# Create ACM certificate
+resource "aws_acm_certificate" "cert" {
+  domain_name       = "example.com"
+  validation_method = "DNS"
+
+  tags = {
+    Environment = "poc"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Create certificate validation
+resource "aws_acm_certificate" "example" {
+  domain_name       = "example.com"
+  validation_method = "DNS"
+}
+
+data "aws_route53_zone" "example" {
+  name         = "example.com"
+  private_zone = false
+}
+
+resource "aws_route53_record" "example" {
+  for_each = {
+    for dvo in aws_acm_certificate.example.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.example.zone_id
+}
+
+resource "aws_acm_certificate_validation" "example" {
+  certificate_arn         = aws_acm_certificate.example.arn
+  validation_record_fqdns = [for record in aws_route53_record.example : record.fqdn]
+}
+
+resource "aws_lb_listener" "app_alb_https_listener" {
+  load_balancer_arn = aws_alb.app_alb.arn
+  port              = 443
+  protocol          = "HTTPS"
+  default_action {
     target_group_arn = aws_alb_target_group.app_alb_target_group.arn
     type             = "forward"
   }
+
+  certificate_arn = aws_acm_certificate_validation.example.certificate_arn
 }
